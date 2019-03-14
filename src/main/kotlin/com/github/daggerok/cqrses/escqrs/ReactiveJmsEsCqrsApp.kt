@@ -82,7 +82,7 @@ class Cfg(val connectionFactory: ConnectionFactory,
               ),
               mapOf(
                   "rel" to "subscribe",
-                  "href" to it.baseUrl() + "/event-stream",
+                  "href" to "${it.baseUrl()}/event-stream",
                   "templated" to false
               )
           )
