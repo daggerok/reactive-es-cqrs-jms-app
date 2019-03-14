@@ -1,13 +1,19 @@
 package com.github.daggerok.cqrses.escqrs
 
-import com.github.daggerok.cqrses.escqrs.JmsCfg.REACTIVE_QUEUE
+import lombok.AllArgsConstructor
+import org.reactivestreams.Publisher
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.ClassPathResource
 import org.springframework.http.MediaType.TEXT_EVENT_STREAM
+import org.springframework.integration.dsl.IntegrationFlows
+import org.springframework.integration.dsl.MessageChannels
+import org.springframework.integration.jms.dsl.Jms
+import org.springframework.jms.annotation.EnableJms
 import org.springframework.jms.core.JmsTemplate
+import org.springframework.messaging.Message
 import org.springframework.web.reactive.function.server.ServerRequest
 import org.springframework.web.reactive.function.server.body
 import org.springframework.web.reactive.function.server.router
@@ -15,10 +21,34 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.toMono
 import reactor.core.scheduler.Schedulers
 import java.net.URI
+import java.util.*
+import javax.jms.ConnectionFactory
+
+const val reactiveQueue = "reactive-queue"
 
 @Configuration
-class RestApi(val sharedStream: Flux<Map<String, String>>,
-              val jmsTemplate: JmsTemplate) {
+class Cfg(val connectionFactory: ConnectionFactory,
+          val jmsTemplate: JmsTemplate) {
+  @Bean
+  fun jmsReactivePublisher(): Publisher<Message<MutableMap<String, String>>> = IntegrationFlows
+      .from(Jms.messageDrivenChannelAdapter(connectionFactory)
+          .destination(reactiveQueue))
+      .channel(MessageChannels.queue())
+      .log()
+      .toReactivePublisher()
+
+  @Bean
+  fun sharedStream() = Flux
+      .from(jmsReactivePublisher())
+      .map {
+        val headers = it.headers
+        val payload = it.payload
+        payload["timestamp"] = headers.timestamp.toString()
+        payload["id"] = headers.id.toString()
+        payload.toMap()
+      }
+      .share()
+
   @Bean
   fun routes() = router {
     resources("/", ClassPathResource("/classpath:/static/"))
@@ -26,16 +56,16 @@ class RestApi(val sharedStream: Flux<Map<String, String>>,
     GET("/event-stream") {
       ok()//.contentType(org.springframework.http.MediaType.APPLICATION_STREAM_JSON)
           .contentType(TEXT_EVENT_STREAM)
-          .body(sharedStream)
+          .body(sharedStream())
           .subscribeOn(Schedulers.elastic())
     }
     fun ServerRequest.baseUrl() = "${this.uri().scheme}://${this.uri().authority}"
     POST("/**") {
       created(URI.create("${it.baseUrl()}/event-stream"))
           .body(it.bodyToMono(Object::class.java)
-          .map { jmsTemplate.convertAndSend(REACTIVE_QUEUE, it) }
-          .then("Message sent.".toMono())
-          .subscribeOn(Schedulers.elastic()))
+              .map { jmsTemplate.convertAndSend(reactiveQueue, it) }
+              .then("Message sent.".toMono())
+              .subscribeOn(Schedulers.elastic()))
     }
     path("/**") {
       ok().body(mapOf(
