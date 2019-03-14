@@ -74,6 +74,16 @@ class Cfg(val connectionFactory: ConnectionFactory,
                   "rel" to "_self",
                   "href" to it.baseUrl() + it.path(),
                   "templated" to false
+              ),
+              mapOf(
+                  "rel" to "send",
+                  "href" to it.baseUrl(),
+                  "templated" to false
+              ),
+              mapOf(
+                  "rel" to "subscribe",
+                  "href" to it.baseUrl() + "/event-stream",
+                  "templated" to false
               )
           )
       ).toMono())
