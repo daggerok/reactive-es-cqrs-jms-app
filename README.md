@@ -50,3 +50,7 @@ Content-Type: application/json;charset=UTF-8
     ]
 }
 ```
+
+links:
+
+- [Spring Boot JMS](https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#boot-features-jms)
