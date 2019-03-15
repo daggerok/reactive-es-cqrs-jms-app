@@ -10,6 +10,7 @@ import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
+import org.springframework.context.annotation.Profile
 import org.springframework.core.io.ClassPathResource
 import org.springframework.http.MediaType.TEXT_EVENT_STREAM
 import org.springframework.integration.dsl.IntegrationFlows
@@ -37,7 +38,8 @@ fun dir(name: String): File {
 }
 
 @Configuration
-class Jms(val connectionFactory: ConnectionFactory) {
+@Profile("!embedded")
+class Jms {
 
   @Bean
   fun persistenceAdapter(): PersistenceAdapter {
@@ -58,9 +60,13 @@ class Jms(val connectionFactory: ConnectionFactory) {
     broker.isPersistent = true
     return broker
   }
+}
+
+@Configuration
+class Integration(val connectionFactory: ConnectionFactory) {
 
   @Bean
-  fun jmsReactivePublisher(): Publisher<Message<MutableMap<String, String>>> =
+  fun jmsReactivePublisher(): Publisher<Message<Map<String, String>>> =
       IntegrationFlows
           .from(Jms.messageDrivenChannelAdapter(connectionFactory)
               .destination(reactiveQueue))
@@ -70,14 +76,11 @@ class Jms(val connectionFactory: ConnectionFactory) {
 
   @Bean
   fun sharedStream() =
-      Flux
-          .from(jmsReactivePublisher())
+      Flux.from(jmsReactivePublisher())
           .map {
-            val headers = it.headers
-            val payload = it.payload
-            payload["timestamp"] = headers.timestamp.toString()
-            payload["id"] = headers.id.toString()
-            payload.toMap()
+            it.payload
+                .plus("id" to it.headers.id.toString())
+                .plus("timestamp" to it.headers.timestamp.toString())
           }
           .share()
 }
@@ -85,7 +88,6 @@ class Jms(val connectionFactory: ConnectionFactory) {
 @Configuration
 class RestApi(val jmsTemplate: JmsTemplate,
               val sharedStream: Flux<Map<String, String>>) {
-
   @Bean
   fun routes() = router {
     resources("/", ClassPathResource("/classpath:/static/"))
