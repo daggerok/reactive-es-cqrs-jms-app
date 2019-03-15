@@ -54,8 +54,8 @@ class Jms {
   @Bean(initMethod = "start", destroyMethod = "stop")
   fun brokerService(): BrokerService {
     val broker = BrokerService()
-    broker.addConnector("tcp://127.0.0.1:61616")
     //broker.addConnector("vm://127.0.0.1")
+    broker.addConnector("tcp://127.0.0.1:61616")
     broker.persistenceAdapter = persistenceAdapter()
     broker.isPersistent = true
     return broker
