@@ -1,10 +1,15 @@
 package com.github.daggerok.escqrs
 
+import org.apache.activemq.broker.BrokerService
+import org.apache.activemq.store.PersistenceAdapter
+import org.apache.activemq.store.kahadb.KahaDBPersistenceAdapter
+import org.apache.activemq.store.kahadb.MessageDatabase.DEFAULT_DIRECTORY
 import org.reactivestreams.Publisher
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Primary
 import org.springframework.core.io.ClassPathResource
 import org.springframework.http.MediaType.TEXT_EVENT_STREAM
 import org.springframework.integration.dsl.IntegrationFlows
@@ -18,14 +23,42 @@ import org.springframework.web.reactive.function.server.router
 import reactor.core.publisher.Flux
 import reactor.core.publisher.toMono
 import reactor.core.scheduler.Schedulers
+import java.io.File
 import java.net.URI
+import java.nio.file.Paths
 import javax.jms.ConnectionFactory
 
 const val reactiveQueue = "reactive-queue"
 
+fun dir(name: String): File {
+  val result = Paths.get("target", DEFAULT_DIRECTORY.name, name).toFile()
+  result.mkdirs()
+  return result
+}
+
 @Configuration
-class Cfg(val jmsTemplate: JmsTemplate,
-          val connectionFactory: ConnectionFactory) {
+class Jms(val connectionFactory: ConnectionFactory) {
+
+  @Bean
+  fun persistenceAdapter(): PersistenceAdapter {
+    val persistenceAdapter = KahaDBPersistenceAdapter()
+    persistenceAdapter.directory = dir("db")
+    persistenceAdapter.directoryArchive = dir("arch")
+    persistenceAdapter.indexDirectory = dir("index")
+    return persistenceAdapter
+  }
+
+  @Primary
+  @Bean(initMethod = "start", destroyMethod = "stop")
+  fun brokerService(): BrokerService {
+    val broker = BrokerService()
+    broker.addConnector("tcp://127.0.0.1:61616")
+    //broker.addConnector("vm://127.0.0.1")
+    broker.persistenceAdapter = persistenceAdapter()
+    broker.isPersistent = true
+    return broker
+  }
+
   @Bean
   fun jmsReactivePublisher(): Publisher<Message<MutableMap<String, String>>> =
       IntegrationFlows
@@ -47,6 +80,11 @@ class Cfg(val jmsTemplate: JmsTemplate,
             payload.toMap()
           }
           .share()
+}
+
+@Configuration
+class RestApi(val jmsTemplate: JmsTemplate,
+              val sharedStream: Flux<Map<String, String>>) {
 
   @Bean
   fun routes() = router {
@@ -56,7 +94,7 @@ class Cfg(val jmsTemplate: JmsTemplate,
     GET("/event-stream") {
       ok()//.contentType(org.springframework.http.MediaType.APPLICATION_STREAM_JSON)
           .contentType(TEXT_EVENT_STREAM)
-          .body(sharedStream())
+          .body(sharedStream)
           .subscribeOn(Schedulers.elastic())
     }
 

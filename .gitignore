@@ -1,4 +1,5 @@
-src/main/kotlin/com/github/daggerok/**/fuckit/**
+activemq-data/
+**/fuckit/**
 .DS_Store
 HELP.md
 target/
